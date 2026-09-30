@@ -2,7 +2,7 @@
 #
 # Source: .gardener/tasks/mention-reply/TASK.md
 # Task: mention-reply
-# Bundle: sha256:54bf0217b72e54428e9341e6b89e73f6e7f48f5665c032685a18392b8108b333
+# Bundle: sha256:ecb0bdc092aef7e5cfd3e9a3fe56bbae870d61236b3bf04f0964797eb5757071
 # Regenerate: gardener generate
 # Do not edit this workflow directly.
 name: "Gardener · Mention reply"
@@ -41,10 +41,10 @@ jobs:
       issues: write
       pull-requests: write
       statuses: read
-    uses: scuffi/gardener/.github/workflows/gardener-task.yml@ce457eb2b4ec4ea85f2e6e5dd9ce794d196da711
+    uses: scuffi/gardener/.github/workflows/gardener-task.yml@3a0bc85d1f5cffccb50fba787b18334e4c21ba72
     with:
       runtime-url: ${{ vars.GARDENER_RUNTIME_URL }}
       task-id: "mention-reply"
       task-name: "Mention reply"
       task-source: ".gardener/tasks/mention-reply/TASK.md"
-      task-bundle-hash: 54bf0217b72e54428e9341e6b89e73f6e7f48f5665c032685a18392b8108b333
+      task-bundle-hash: ecb0bdc092aef7e5cfd3e9a3fe56bbae870d61236b3bf04f0964797eb5757071
