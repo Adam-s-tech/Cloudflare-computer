@@ -46,7 +46,7 @@ import {
   unlinkSync,
   writeSync,
 } from "node:fs";
-import { dirname, join, posix } from "node:path";
+import { dirname, join } from "node:path";
 
 import type { FuseOps, FuseStat } from "./driver.js";
 import type { MountIgnoreSet } from "./ignore.js";
@@ -509,7 +509,26 @@ export function withLocalPassthrough(
 
     rmdir(path, cb) {
       if (!isLocal(path)) {
-        ops.rmdir(path, cb);
+        // The synced side never sees local-only children, so it would
+        // happily remove a directory that still holds node_modules on
+        // disk. Check the local side first, and clean up its scaffolding
+        // once the synced directory is gone.
+        const scaffolding = localPath(path);
+        if (hasLocalContents(path)) {
+          cb(ERRNO.ENOTEMPTY);
+          return;
+        }
+        ops.rmdir(path, (code) => {
+          if (code === 0) {
+            try {
+              fs.rmdirSync(scaffolding);
+            } catch {
+              // Absent, or something was created in between; either way
+              // the synced removal stands.
+            }
+          }
+          cb(code);
+        });
         return;
       }
       localOps += 1;
@@ -526,7 +545,19 @@ export function withLocalPassthrough(
       const destinationLocal = isLocal(destination);
 
       if (!sourceLocal && !destinationLocal) {
-        ops.rename(source, destination, cb);
+        // The synced side can't see the destination's local-only
+        // children, so it would let this replace a directory that still
+        // holds node_modules on disk. The local move onto it would then
+        // fail and strand the source's contents. In the merged view the
+        // destination isn't empty, which is ENOTEMPTY for rename(2).
+        if (hasLocalContents(destination)) {
+          cb(ERRNO.ENOTEMPTY);
+          return;
+        }
+        ops.rename(source, destination, (code) => {
+          if (code === 0) moveLocalContents(source, destination);
+          cb(code);
+        });
         return;
       }
 
@@ -711,24 +742,53 @@ export function withLocalPassthrough(
     );
   }
 
+  // Local-only children of a synced directory. The matching directory
+  // under the local root also holds scaffolding (the parents a local-only
+  // path needs on disk), so only entries that are themselves local-only
+  // are listed. Almost always ENOENT: most synced directories have no
+  // local-only children.
   function localChildren(path: string): string[] {
-    const relative = toRelative(path, mountRoot);
-    const names: string[] = [];
-    for (const entry of options.ignore.paths) {
-      const parent = posix.dirname(entry);
-      const normalizedParent = parent === "." ? "" : parent;
-      if (normalizedParent !== relative) continue;
-      // Only list it if it has actually been created on disk. An
-      // unconfigured-but-unused entry should not appear as a phantom
-      // directory in a listing.
-      try {
-        fs.lstatSync(join(root, entry));
-        names.push(posix.basename(entry));
-      } catch {
-        // Not materialized yet; nothing to show.
-      }
+    let names: string[];
+    try {
+      names = fs.readdirSync(localPath(path)) as string[];
+    } catch {
+      return [];
     }
-    return names;
+    const parent = toRelative(path, mountRoot);
+    return names.filter((name) => isLocal(parent === "" ? name : `${parent}/${name}`));
+  }
+
+  function hasLocalContents(path: string): boolean {
+    try {
+      return fs.readdirSync(localPath(path)).length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  // After a synced directory is renamed, move whatever it held on local
+  // disk, or packages/foo/node_modules is left behind at the old path,
+  // unreachable, while the new path has none. The two renames can't be
+  // atomic together. The synced one has already succeeded and is what
+  // the caller asked for, so a failure here is logged, not returned.
+  function moveLocalContents(source: string, destination: string): void {
+    const from = localPath(source);
+    try {
+      fs.lstatSync(from);
+    } catch {
+      return;
+    }
+    try {
+      const to = localPath(destination);
+      ensureParent(to);
+      fs.renameSync(from, to);
+    } catch (error) {
+      warn(
+        `computerd: renamed ${source} to ${destination}, but could not move its ` +
+          `local-only contents on disk (${errnoOf(error) ?? String(error)}). They ` +
+          `remain under ${from} and are not reachable through the mount.`,
+      );
+    }
   }
 
   return {
