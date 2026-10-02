@@ -1,5 +1,5 @@
 ---
-"@cloudflare/computer": minor
+"@cloudflare/computer": patch
 ---
 
-Add `ignore` to `ContainerBackend` to configure pass-through to the container disk.
+Keep configured paths local to the container instead of syncing them with the Durable Object using `ContainerBackend.ignore`; see [local-only path documentation](https://github.com/cloudflare/computer/blob/main/docs/19_performance.md#local-only-paths-mount_ignore).
